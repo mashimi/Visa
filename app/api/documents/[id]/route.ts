@@ -1,25 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth, db, isAdminInitialized } from '@/lib/firebase-admin';
-import { doc, getDoc, deleteDoc } from 'firebase/firestore';
-import { deleteFromFirebaseStorage } from '@/lib/storage/s3';
-
-function getUnauthorizedResponse() {
-  return NextResponse.json(
-    { 
-      error: 'Firebase Admin not configured',
-      message: 'Please configure Firebase Admin credentials in .env.local to use this feature.',
-      setupGuide: 'https://firebase.google.com/docs/admin/setup'
-    },
-    { status: 503 }
-  );
-}
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!isAdminInitialized()) {
-    return getUnauthorizedResponse();
+  if (!isAdminInitialized() || !auth || !db) {
+    return NextResponse.json(
+      { error: 'Firebase Admin not properly initialized' },
+      { status: 503 }
+    );
   }
 
   try {
@@ -30,28 +20,26 @@ export async function GET(
 
     const token = authHeader.split(' ')[1];
     const decodedToken = await auth.verifyIdToken(token);
-
+    const userId = decodedToken.uid;
     const documentId = params.id;
 
-    // Get document
-    const documentRef = doc(db, 'documents', documentId);
-    const documentDoc = await getDoc(documentRef);
+    // Use Admin SDK for Firestore access
+    const docSnap = await db.collection('userDocuments').doc(documentId).get();
 
-    if (!documentDoc.exists()) {
+    if (!docSnap.exists) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    const documentData = documentDoc.data();
-    if (documentData?.userId !== decodedToken.uid) {
+    const documentData = docSnap.data();
+    if (documentData?.userId !== userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     return NextResponse.json({
       document: {
-        id: documentDoc.id,
+        id: docSnap.id,
         ...documentData,
-        uploadedAt: documentData.uploadedAt.toDate(),
-        verifiedAt: documentData.verifiedAt?.toDate(),
+        createdAt: documentData?.createdAt?.toDate?.() || documentData?.createdAt,
       },
     });
   } catch (error: any) {
@@ -67,8 +55,11 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!isAdminInitialized()) {
-    return getUnauthorizedResponse();
+  if (!isAdminInitialized() || !auth || !db) {
+    return NextResponse.json(
+      { error: 'Firebase Admin not properly initialized' },
+      { status: 503 }
+    );
   }
 
   try {
@@ -79,29 +70,25 @@ export async function DELETE(
 
     const token = authHeader.split(' ')[1];
     const decodedToken = await auth.verifyIdToken(token);
-
+    const userId = decodedToken.uid;
     const documentId = params.id;
 
-    // Get document
-    const documentRef = doc(db, 'documents', documentId);
-    const documentDoc = await getDoc(documentRef);
+    // Use Admin SDK
+    const docRef = db.collection('userDocuments').doc(documentId);
+    const docSnap = await docRef.get();
 
-    if (!documentDoc.exists()) {
+    if (!docSnap.exists) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    const documentData = documentDoc.data();
-    if (documentData?.userId !== decodedToken.uid) {
+    const documentData = docSnap.data();
+    if (documentData?.userId !== userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    // Delete from storage
-    if (documentData.filename) {
-      await deleteFromFirebaseStorage(documentData.filename);
-    }
-
-    // Delete from Firestore
-    await deleteDoc(documentRef);
+    // Since we are using the "Stealth Ingest Protocol", there are no binary files in S3/Storage
+    // We only need to delete the intelligence record in Firestore
+    await docRef.delete();
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

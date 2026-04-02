@@ -6,19 +6,16 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
-    const audioFile = formData.get('audio') as File;
+    const audioFile = formData.get('audio');
 
-    if (!audioFile) {
+    if (!audioFile || !(audioFile instanceof Blob)) {
       return NextResponse.json({ error: 'No audio file provided' }, { status: 400 });
     }
 
-    // Convert File to Buffer
-    const bytes = await audioFile.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    // Transcribe with Whisper
+    // Direct use of the Blob/File object for OpenAI Whisper
+    // This avoids Node Buffer vs DOM File type incompatibilities during Next.js build
     const transcription = await openai.audio.transcriptions.create({
-      file: new File([buffer], 'audio.webm', { type: audioFile.type }),
+      file: audioFile as any, // Cast to any to bypass strict SDK type checks if necessary, but Blob is natively supported
       model: 'whisper-1',
       language: 'en',
     });

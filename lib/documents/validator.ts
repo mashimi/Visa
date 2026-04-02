@@ -1,6 +1,5 @@
-import OpenAI from 'openai';
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { aiClient, AI_MODEL } from '@/lib/ai/client';
+import { getVisaDefinitionById } from '@/lib/ai/visa-definitions';
 
 export interface DocumentValidationResult {
   isValid: boolean;
@@ -13,18 +12,24 @@ export interface DocumentValidationResult {
 
 export async function validateDocument(
   text: string,
-  filename: string
+  filename: string,
+  visaType?: string
 ): Promise<DocumentValidationResult> {
-  const prompt = `
-Analyze this visa document:
+  const visaDefinition = visaType ? getVisaDefinitionById(visaType) : undefined;
+  const documentHint = visaDefinition
+    ? `The applicant is applying for a ${visaDefinition.name}. Key documents for this visa include: ${visaDefinition.aiContext.documentHint}. Please analyze with this context in mind.`
+    : 'The applicant is applying for a visa. Analyze this document generally.';
 
+  const prompt = `
+Analyze the following document text extracted from a file named "${filename}".
+${documentHint}
+
+Document Text (first 3000 chars):
 ${text.substring(0, 3000)}
 
-Document name: ${filename}
-
-Provide analysis in JSON:
+Provide analysis in JSON format:
 {
-  "category": "passport|bank_statement|employment_letter|travel_itinerary|invitation_letter|other",
+  "category": "passport|bank_statement|employment_letter|business_plan|proof_of_relationship|travel_itinerary|invitation_letter|other",
   "extractedData": {
     "name": "if present",
     "dateOfBirth": "if present",
@@ -36,17 +41,25 @@ Provide analysis in JSON:
     "travelDates": "if itinerary",
     "purpose": "if invitation letter"
   },
-  "issues": ["missing critical information"],
-  "warnings": ["passport expires soon"],
-  "suggestedQuestions": ["What is the source of these funds?"]
+  "issues": ["list of critical missing information or red flags"],
+  "warnings": ["list of potential concerns, like a soon-to-expire passport"],
+  "suggestedQuestions": ["2-3 specific questions a consular officer might ask based on this document's content, tailored to the visa type if known"]
 }
 `;
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4-turbo-preview',
+  const completion = await aiClient.chat.completions.create({
+    model: AI_MODEL,
     messages: [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
   });
 
-  return JSON.parse(completion.choices[0].message.content);
+  const result = JSON.parse(completion.choices[0].message.content || '{}');
+  return {
+    isValid: (result.issues || []).length === 0,
+    category: result.category || 'other',
+    extractedData: result.extractedData || {},
+    issues: result.issues || [],
+    warnings: result.warnings || [],
+    suggestedQuestions: result.suggestedQuestions || [],
+  };
 }

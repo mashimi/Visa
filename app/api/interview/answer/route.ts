@@ -1,47 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, db, isAdminInitialized } from '@/lib/firebase-admin';
+import { auth, db } from '@/lib/firebase-admin';
 import { evaluateAnswer, InterviewContext, InterviewResult } from '@/lib/ai/interview-engine';
 
-interface SessionDocument {
-  userId: string;
-  visaType: string;
-  persona?: string;
-  mission?: string;
-  userDocuments?: string[];
-  currentQuestionIndex: number;
-  status: 'ACTIVE' | 'COMPLETED';
-}
-
-interface MessageDocument {
-  role: 'USER' | 'ASSISTANT';
-  content: string;
-  createdAt: Date;
-  sessionId: string;
-  evaluation?: {
-    score: number;
-    feedback: string;
-    suggestions: string[];
-  };
-}
-
 export async function POST(req: NextRequest) {
-  if (!isAdminInitialized()) {
-    return NextResponse.json(
-      { 
-        error: 'Firebase Admin not configured',
-        message: 'Please configure Firebase Admin credentials in .env.local to use this feature.',
-        setupGuide: 'https://firebase.google.com/docs/admin/setup'
-      },
-      { status: 503 }
-    );
-  }
-
-  // Ensure auth and db are initialized
-  if (!auth || !db) {
-    return NextResponse.json(
-      { error: 'Firebase Admin not properly initialized' },
-      { status: 503 }
-    );
+  if (!db || !auth) {
+    return NextResponse.json({ error: 'Firebase Admin not configured' }, { status: 503 });
   }
 
   try {
@@ -56,92 +19,118 @@ export async function POST(req: NextRequest) {
 
     const { sessionId, answer } = await req.json();
 
-    // Validate sessionId
-    if (!sessionId || sessionId === 'null' || sessionId === 'undefined') {
-      return NextResponse.json(
-        { error: 'Invalid session ID', message: 'No session ID provided' },
-        { status: 400 }
-      );
+    if (!sessionId) {
+      return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 });
     }
 
-    // Validate answer
-    if (!answer || typeof answer !== 'string' || !answer.trim()) {
-      return NextResponse.json(
-        { error: 'Invalid answer', message: 'Answer is required' },
-        { status: 400 }
-      );
-    }
-
-    // 1. Get Session Data
+    // 1. Get session
     const sessionDoc = await db.collection('interviewSessions').doc(sessionId).get();
-    if (!sessionDoc.exists || (sessionDoc.data() as SessionDocument).userId !== userId) {
+    if (!sessionDoc.exists || sessionDoc.data()?.userId !== userId) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
-    const sessionData = sessionDoc.data() as SessionDocument;
+    const sessionData = sessionDoc.data() as any;
 
-    // Check if session is completed
     if (sessionData.status === 'COMPLETED') {
-      return NextResponse.json(
-        { error: 'Session completed', message: 'This interview session has already been completed' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Session completed' }, { status: 400 });
     }
 
-    // 2. Get previous messages for context
-    const messagesSnap = await db.collection('interviewMessages')
+    // 2. Get previous messages
+    const messagesSnap = await db
+      .collection('interviewMessages')
       .where('sessionId', '==', sessionId)
       .orderBy('createdAt', 'asc')
       .get();
-    
-    const allMessages = messagesSnap.docs.map((doc: any) => doc.data() as MessageDocument);
-    const lastAssistantMessage = [...allMessages].reverse().find(m => m.role === 'ASSISTANT');
-    const question = lastAssistantMessage?.content || "Please tell me about your travel plans.";
 
-    // 3. Save User Answer
-    await db.collection('interviewMessages').add({
+    const allMessages = messagesSnap.docs.map(doc => doc.data());
+    const lastAssistantMessage = [...allMessages].reverse().find(m => m.role === 'ASSISTANT');
+    const question = lastAssistantMessage?.content || 'Please tell me about your travel plans.';
+
+    // 3. Save user answer
+    const userMessageRef = await db.collection('interviewMessages').add({
       sessionId,
       role: 'USER',
       content: answer,
       createdAt: new Date(),
     });
 
-    // 4. Prepare Context for AI
+    // 4. Build conversation history
     const previousAnswers: { question: string; answer: string }[] = [];
     for (let i = 0; i < allMessages.length; i++) {
-        const current = allMessages[i];
-        const next = allMessages[i+1];
-        if (current.role === 'ASSISTANT' && next?.role === 'USER') {
-            previousAnswers.push({
-                question: current.content,
-                answer: next.content
-            });
-        }
+      const current = allMessages[i];
+      const next = allMessages[i + 1];
+      if (current.role === 'ASSISTANT' && next?.role === 'USER') {
+        previousAnswers.push({ question: current.content, answer: next.content });
+      }
     }
 
+    // 5. Load mission intelligence (RAG Context)
+    const documentsSnap = await db
+      .collection('userDocuments')
+      .where('userId', '==', userId)
+      .get();
+    
+    const missionIntelligence = documentsSnap.docs.map(doc => {
+      const data = doc.data();
+      return {
+        category: data.category,
+        intelligence: data.extractedData,
+        source: data.name,
+        // We only send a snippet of text to save tokens, or the full text if small
+        content: data.extractedText?.substring(0, 2000)
+      };
+    });
+
+    // 6. Build AI context
     const context: InterviewContext = {
       visaType: sessionData.visaType,
       persona: sessionData.persona,
-      mission: sessionData.mission,
-      userDocuments: sessionData.userDocuments || [],
+      missionId: sessionData.missionId,
+      userDocuments: missionIntelligence, // Now contains RAG intelligence
       previousAnswers,
       currentQuestionIndex: sessionData.currentQuestionIndex + 1,
     };
 
-    // 5. Evaluate Answer and Generate Next Question
+    // 7. Evaluate answer
     const result: InterviewResult = await evaluateAnswer(question, answer, context);
 
-    // 6. Update Session
+    // 8. Calculate running average score
+    const evaluationsSnap = await db
+      .collection('interviewSessions')
+      .doc(sessionId)
+      .collection('evaluations')
+      .get();
+    const existingScores = evaluationsSnap.docs.map(doc => doc.data().score as number);
+    const allScores = [...existingScores, result.score];
+    const averageScore = Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length);
+
     const newProgress = Math.min(100, Math.round(((sessionData.currentQuestionIndex + 1) / 10) * 100));
     const isComplete = newProgress >= 100;
 
+    // 9. Update session
     await db.collection('interviewSessions').doc(sessionId).update({
       currentQuestionIndex: sessionData.currentQuestionIndex + 1,
       progress: newProgress,
       status: isComplete ? 'COMPLETED' : 'ACTIVE',
-      lastEvaluation: result
+      lastEvaluation: result,
+      averageScore,
     });
 
-    // 7. Save Assistant Question/Response
+    // 10. Store detailed evaluation
+    await db
+      .collection('interviewSessions')
+      .doc(sessionId)
+      .collection('evaluations')
+      .doc(userMessageRef.id)
+      .set({
+        question,
+        answer,
+        score: result.score,
+        feedback: result.feedback,
+        suggestions: result.suggestions,
+        createdAt: new Date(),
+      });
+
+    // 11. Save assistant response
     await db.collection('interviewMessages').add({
       sessionId,
       role: 'ASSISTANT',
@@ -150,8 +139,8 @@ export async function POST(req: NextRequest) {
       evaluation: {
         score: result.score,
         feedback: result.feedback,
-        suggestions: result.suggestions
-      }
+        suggestions: result.suggestions,
+      },
     });
 
     return NextResponse.json({
@@ -160,15 +149,11 @@ export async function POST(req: NextRequest) {
       suggestions: result.suggestions,
       nextQuestion: result.nextQuestion,
       progress: newProgress,
-      isComplete
+      averageScore,
+      isComplete,
     });
-
   } catch (error: any) {
     console.error('Answer submission error:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to process answer' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message || 'Failed to process answer' }, { status: 500 });
   }
 }
-

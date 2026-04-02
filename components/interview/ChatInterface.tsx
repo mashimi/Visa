@@ -5,8 +5,9 @@ import { useAuth } from '@/components/auth/FireAuthProvider';
 import { MessageBubble } from './MessageBubble';
 import { RecordingButton } from './RecordingButton';
 import { TypingIndicator } from './TypingIndicator';
+import { ReportView } from './ReportView';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Zap, ShieldCheck, AlertCircle, RefreshCw, Mic } from 'lucide-react';
+import { Send, Zap, ShieldCheck, AlertCircle, RefreshCw, Mic, Loader2 } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -27,7 +28,7 @@ declare global {
   }
 }
 
-export function ChatInterface({ sessionId }: { sessionId: string }) {
+export function ChatInterface({ sessionId, caseId }: { sessionId: string; caseId: string | null }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -36,6 +37,8 @@ export function ChatInterface({ sessionId }: { sessionId: string }) {
   const [isComplete, setIsComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sentiment, setSentiment] = useState<number>(50); // 0-100
+  const [finalReport, setFinalReport] = useState<string | null>(null);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
@@ -175,6 +178,30 @@ export function ChatInterface({ sessionId }: { sessionId: string }) {
     }
   };
 
+  const generateReport = async () => {
+    if (!user || !caseId) return;
+    setIsGeneratingReport(true);
+    setError(null);
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch('/api/interview/debrief', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ caseId }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      setFinalReport(data.finalReport);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
   const toggleListening = () => {
     if (isListening) {
       recognitionRef.current?.stop();
@@ -280,16 +307,35 @@ export function ChatInterface({ sessionId }: { sessionId: string }) {
       {/* Input area */}
       <div className="p-6 bg-[var(--bg-secondary)]/30 border-t border-[var(--border)]">
         {isComplete ? (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="text-center p-6 bg-gold-500/10 border border-gold-500/20 rounded-2xl"
-          >
-            <Zap className="w-8 h-8 text-gold-500 mx-auto mb-3" />
-            <h3 className="text-xl font-bold font-display text-gold-500 mb-2">Protocol Finalized</h3>
-            <p className="text-sm text-[var(--fg-secondary)] mb-4">You have successfully completed the interview simulation. Review your global analysis in the dashboard.</p>
-            <button className="btn-primary py-2 px-8 text-xs uppercase tracking-widest">Generate Final Report</button>
-          </motion.div>
+          <>
+            {finalReport ? (
+              <ReportView report={finalReport} onClose={() => setFinalReport(null)} />
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="text-center p-6 bg-gold-500/10 border border-gold-500/20 rounded-2xl"
+              >
+                <Zap className="w-8 h-8 text-gold-500 mx-auto mb-3" />
+                <h3 className="text-xl font-bold font-display text-gold-500 mb-2">Protocol Finalized</h3>
+                <p className="text-sm text-[var(--fg-secondary)] mb-4">You have successfully completed the interview simulation. Review your global analysis in the dashboard.</p>
+                <button
+                  onClick={generateReport}
+                  disabled={isGeneratingReport}
+                  className="btn-primary py-2 px-8 text-xs uppercase tracking-widest flex items-center gap-2 mx-auto"
+                >
+                  {isGeneratingReport ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-black" />
+                      Generating Specialist Analysis...
+                    </>
+                  ) : (
+                    'Generate Final Report'
+                  )}
+                </button>
+              </motion.div>
+            )}
+          </>
         ) : (
           <div className="relative group">
             <div className="absolute -inset-1 bg-gradient-to-r from-gold-500/20 to-transparent rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-500"></div>

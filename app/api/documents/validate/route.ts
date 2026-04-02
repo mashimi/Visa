@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth, db, isAdminInitialized } from '@/lib/firebase-admin';
-import { doc, updateDoc } from 'firebase/firestore';
 
 export async function POST(req: NextRequest) {
-  if (!isAdminInitialized()) {
+  if (!isAdminInitialized() || !auth || !db) {
     return NextResponse.json(
-      { 
-        error: 'Firebase Admin not configured',
-        message: 'Please configure Firebase Admin credentials in .env.local to use this feature.',
-        setupGuide: 'https://firebase.google.com/docs/admin/setup'
-      },
+      { error: 'Firebase Admin not properly initialized' },
       { status: 503 }
     );
   }
@@ -21,15 +16,30 @@ export async function POST(req: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
+    
+    // Verified Admin Auth call
     const decodedToken = await auth.verifyIdToken(token);
+    const userId = decodedToken.uid;
 
     const { documentId, status } = await req.json();
 
-    // Update document status
-    const documentRef = doc(db, 'documents', documentId);
-    await updateDoc(documentRef, {
+    if (!documentId) {
+      return NextResponse.json({ error: 'documentId is required' }, { status: 400 });
+    }
+
+    // Verify document ownership before update
+    const docRef = db.collection('userDocuments').doc(documentId);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists || docSnap.data()?.userId !== userId) {
+      return NextResponse.json({ error: 'Document not found or unauthorized' }, { status: 404 });
+    }
+
+    // Update document status using Admin SDK
+    await docRef.update({
       status: status === 'verified' ? 'VALIDATED' : 'REJECTED',
       verifiedAt: new Date(),
+      updatedAt: new Date(),
     });
 
     return NextResponse.json({ success: true });

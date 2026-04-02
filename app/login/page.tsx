@@ -127,6 +127,13 @@ export default function LoginPage() {
             </Link>
           </p>
         </div>
+
+        {/* Auth Footer */}
+        <div className="mt-8 flex items-center justify-center gap-6 text-xs text-[var(--fg-muted)] font-medium tracking-wide">
+          <Link href="/terms" className="hover:text-gold-500 transition-colors uppercase">Operational Terms</Link>
+          <span className="w-1 h-1 bg-[var(--border)] rounded-full"></span>
+          <Link href="/privacy" className="hover:text-gold-500 transition-colors uppercase">Privacy Protocol</Link>
+        </div>
       </div>
     </div>
   );

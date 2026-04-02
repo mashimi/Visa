@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, db, isAdminInitialized } from '@/lib/firebase-admin';
-import { doc, updateDoc, arrayUnion, addDoc, collection } from 'firebase/firestore';
-import { uploadToFirebaseStorage } from '@/lib/storage/s3';
+import { auth, db } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { extractTextFromFile } from '@/lib/documents/parser';
 import { validateDocument } from '@/lib/documents/validator';
 
 export async function POST(req: NextRequest) {
-  if (!isAdminInitialized()) {
+  if (!db || !auth) {
     return NextResponse.json(
       { 
         error: 'Firebase Admin not configured',
-        message: 'Please configure Firebase Admin credentials in .env.local to use this feature.',
-        setupGuide: 'https://firebase.google.com/docs/admin/setup'
-      },
+        message: 'Please configure Firebase Admin credentials in .env.local to use this feature.'
+      }, 
       { status: 503 }
     );
   }
@@ -34,47 +32,42 @@ export async function POST(req: NextRequest) {
 
     for (const file of files) {
       try {
-        // Convert File to Buffer
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
 
-        // Upload to Firebase Storage
-        const fileName = `users/${userId}/documents/${Date.now()}_${file.name}`;
-        const fileUrl = await uploadToFirebaseStorage(buffer, fileName, file.type);
-
-        // Extract text from document
+        // Stealth Protocol: Extract intelligence without binary storage
         const extractedText = await extractTextFromFile(buffer, file.type);
-
-        // Validate with AI
         const validation = await validateDocument(extractedText, file.name);
 
-        // Save to Firestore
-        const documentRef = await addDoc(collection(db, 'documents'), {
+        // Create Context Record (RAG Ready)
+        const documentRef = await db.collection('userDocuments').add({
           userId,
-          filename: fileName,
-          originalName: file.name,
-          mimeType: file.type,
-          size: file.size,
-          s3Url: fileUrl,
+          name: file.name,
+          extractedText, // Searchable intelligence for the Agent
           category: validation.category,
-          status: validation.isValid ? 'VALIDATED' : 'PROCESSING',
           extractedData: validation.extractedData,
-          validationFeedback: {
+          status: validation.isValid ? 'VALIDATED' : 'FLAGGED',
+          analysis: {
             issues: validation.issues,
             warnings: validation.warnings,
+            suggestedQuestions: validation.suggestedQuestions
           },
-          uploadedAt: new Date(),
+          createdAt: FieldValue.serverTimestamp(),
+          size: file.size,
+          type: file.type,
+          isContextOnly: true // Indicates zero binary footprint in Storage
         });
 
-        // Update user's documents array
-        const userRef = doc(db, 'users', userId);
-        await updateDoc(userRef, {
-          documents: arrayUnion({
+        // Update User Mission Intelligence (Aggregated Dossier)
+        await db.collection('users').doc(userId).update({
+          missionIntelligence: FieldValue.arrayUnion({
             id: documentRef.id,
-            ...validation.extractedData,
             category: validation.category,
-            status: validation.isValid ? 'VALIDATED' : 'PROCESSING',
+            data: validation.extractedData,
+            summary: `${validation.category} analyzed: ${Object.keys(validation.extractedData).length} data points extracted`,
+            timestamp: new Date().toISOString()
           }),
+          'profile.lastIntelligenceSync': FieldValue.serverTimestamp()
         });
 
         results.push({
@@ -86,20 +79,21 @@ export async function POST(req: NextRequest) {
           warnings: validation.warnings,
           suggestedQuestions: validation.suggestedQuestions,
         });
-      } catch (error) {
-        console.error('Error processing document:', error);
+
+      } catch (error: any) {
+        console.error('Error processing document intelligence:', error);
         results.push({
           filename: file.name,
-          error: 'Failed to process document',
+          error: error.message || 'Intelligence extraction failed',
         });
       }
     }
 
     return NextResponse.json({ documents: results });
   } catch (error: any) {
-    console.error('Upload documents error:', error);
+    console.error('Context ingestion error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to upload documents' },
+      { error: error.message || 'Mission context ingestion failed' },
       { status: 500 }
     );
   }

@@ -2,19 +2,14 @@
 
 import { useState, useRef } from 'react';
 import { useAuth } from '@/components/auth/FireAuthProvider';
-import { storage, db } from '@/lib/firebase';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Upload, 
-  FileText, 
   CheckCircle2, 
   AlertCircle, 
-  X, 
   Loader2,
-  FileCode,
-  FilePlus
+  FilePlus,
+  Brain
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -50,7 +45,7 @@ export function DocumentUpload() {
     if (!e.target.files || !user) return;
     
     const newFiles = Array.from(e.target.files);
-    const newUploads = newFiles.map(file => ({
+    const newUploadEntries = newFiles.map(file => ({
       id: Math.random().toString(36).substring(7),
       file,
       progress: 0,
@@ -58,37 +53,37 @@ export function DocumentUpload() {
       category: categorizeDocument(file.name)
     }));
 
-    setUploads(prev => [...newUploads, ...prev]);
+    setUploads(prev => [...newUploadEntries, ...prev]);
 
-    newUploads.forEach(async (upload) => {
-      const storageRef = ref(storage, `users/${user.uid}/documents/${upload.id}_${upload.file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, upload.file);
+    for (const entry of newUploadEntries) {
+      try {
+        const idToken = await user.getIdToken();
+        const formData = new FormData();
+        formData.append('documents', entry.file);
 
-      uploadTask.on('state_changed', 
-        (snapshot: any) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploads(prev => prev.map(u => u.id === upload.id ? { ...u, progress } : u));
-        }, 
-        (error: Error) => {
-          setUploads(prev => prev.map(u => u.id === upload.id ? { ...u, status: 'error', error: error.message } : u));
-        }, 
-        async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          
-          await addDoc(collection(db, 'userDocuments'), {
-            userId: user.uid,
-            name: upload.file.name,
-            url: downloadURL,
-            category: upload.category,
-            createdAt: serverTimestamp(),
-            size: upload.file.size,
-            type: upload.file.type
-          });
+        // Stealth Intelligence Ingest
+        const response = await fetch('/api/documents/upload', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${idToken}` },
+          body: formData
+        });
 
-          setUploads(prev => prev.map(u => u.id === upload.id ? { ...u, status: 'completed', progress: 100 } : u));
-        }
-      );
-    });
+        if (!response.ok) throw new Error('Protocol rejected mission files');
+        
+        setUploads(prev => prev.map(u => u.id === entry.id ? { 
+          ...u, 
+          status: 'completed', 
+          progress: 100 
+        } : u));
+
+      } catch (err: any) {
+        setUploads(prev => prev.map(u => u.id === entry.id ? { 
+          ...u, 
+          status: 'error', 
+          error: err.message || 'Mission artifact transmission failure' 
+        } : u));
+      }
+    }
   };
 
   return (
@@ -108,11 +103,13 @@ export function DocumentUpload() {
             className="hidden"
           />
           <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
-            <Upload className="w-8 h-8 text-gold-500" />
+            <Brain className="w-8 h-8 text-gold-500" />
           </div>
-          <h3 className="text-lg font-bold font-display text-white mb-2">Ingest New Data</h3>
-          <p className="text-sm text-[var(--fg-muted)] mb-1">Drag and drop mission-critical artifacts or click to browse</p>
-          <p className="text-[10px] text-[var(--fg-muted)] font-bold uppercase tracking-widest">PDF • JPG • PNG • MAX 10MB</p>
+          <h3 className="text-lg font-bold font-display text-white mb-2">Ingest Mission Intelligence</h3>
+          <p className="text-sm text-[var(--fg-muted)] mb-1">Upload mission-critical artifacts to be synthesized into Agent context</p>
+          <div className="flex items-center justify-center gap-2 mt-2">
+            <p className="text-[9px] text-gold-500/50 font-black uppercase tracking-[0.2em] px-2 py-0.5 border border-gold-500/20 rounded bg-gold-500/5">Stealth Ingest Protocol Active • No Binary Storage</p>
+          </div>
         </div>
       </div>
 
@@ -165,4 +162,4 @@ export function DocumentUpload() {
       </AnimatePresence>
     </div>
   );
-}
+}

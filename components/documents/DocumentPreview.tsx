@@ -1,6 +1,4 @@
-import { useState } from 'react';
-import { useSession } from 'next-auth/react';
-import { prisma } from '../../lib/db/prisma';
+import { useState, ReactNode } from 'react';
 
 interface Document {
   id: string;
@@ -12,8 +10,7 @@ interface Document {
 
 export function DocumentPreview() {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
-  const [previewContent, setPreviewContent] = useState('');
-  const { data: session } = useSession();
+  const [previewContent, setPreviewContent] = useState<ReactNode | string>('');
 
   const handleDocumentSelect = (doc: Document) => {
     setSelectedDocument(doc);
@@ -24,7 +21,7 @@ export function DocumentPreview() {
     }, 500);
   };
 
-  const getPreviewContent = (doc: Document) => {
+  const getPreviewContent = (doc: Document): ReactNode => {
     switch (doc.category) {
       case 'passport':
         return (
@@ -60,16 +57,25 @@ export function DocumentPreview() {
 
   return (
     <div className="space-y-4">
-      <div className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-gold-500 transition-colors">
+      <div 
+        onClick={() => handleDocumentSelect({
+          id: 'sample',
+          name: 'Passport.pdf',
+          category: 'passport',
+          status: 'verified',
+          progress: 100
+        })}
+        className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-gold-500 transition-colors"
+      >
         <svg className="w-10 h-10 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
         </svg>
-        <p className="text-sm text-gray-400 mb-1">Select a document to preview</p>
+        <p className="text-sm text-gray-400 mb-1">Select a document to preview (Sample Click)</p>
       </div>
 
       {selectedDocument && (
         <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="text-lg font-medium text-white mb-4">Document Preview</h3>
+          <h3 className="text-lg font-medium text-white mb-4">Document Details</h3>
           <div className="space-y-2">
             <div className="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
               <div className="flex items-center gap-3">

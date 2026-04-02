@@ -1,15 +1,35 @@
-import OpenAI from 'openai';
-import { getInterviewQuestions, generateFollowUp } from './prompts';
+import { getVisaDefinitionById } from './visa-definitions';
+import { missionDefinitions } from './mission-definitions';
+import { aiClient, AI_MODEL } from './client';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+export interface CaseFileAnalysis {
+  redFlags: string[];
+  strengths: string[];
+  suggestedFocusAreas: string[];
+}
+
+export interface ApplicationData {
+  personal?: { fullName: string; nationality: string; maritalStatus: string };
+  travel?: { purpose: string; arrivalDate: string; duration: string };
+  employment?: { occupation: string; employerName: string; monthlyIncomeUSD: string };
+}
 
 export interface InterviewContext {
   visaType: string;
-  userDocuments: any[];
+  userDocuments: {
+    category: string;
+    intelligence: any;
+    source: string;
+    content: string; // The extracted text snippet
+  }[];
   previousAnswers: Array<{ question: string; answer: string }>;
   currentQuestionIndex: number;
   persona?: string;
-  mission?: string;
+  missionId?: string;
+  caseFile?: {
+    applicationData?: ApplicationData;
+    applicationAnalysis?: CaseFileAnalysis;
+  };
 }
 
 export interface InterviewResult {
@@ -19,88 +39,161 @@ export interface InterviewResult {
   nextQuestion: string;
 }
 
+// ─── Internal helpers ──────────────────────────────────────────────────────────
 
+function getVisaSpecificContext(visaType: string, missionId?: string) {
+  const visaDefinition = getVisaDefinitionById(visaType);
+  const visaCategory = visaDefinition?.category;
+
+  let missionFocus = 'Standard operational procedure.';
+  if (visaCategory && missionId && missionDefinitions[visaCategory]) {
+    const mission = missionDefinitions[visaCategory].find((m) => m.id === missionId);
+    if (mission) missionFocus = mission.focus;
+  }
+
+  return {
+    visa: visaDefinition?.aiContext ?? {
+      name: 'Visa',
+      keyRegulation: 'local immigration laws',
+      primaryConcern:
+        'The applicant must prove the purpose of their trip is legitimate and that they will not overstay.',
+      documentHint: 'application form',
+    },
+    mission: { focus: missionFocus },
+  };
+}
+
+// ─── Exported functions ────────────────────────────────────────────────────────
 
 export async function generateNextQuestion(context: InterviewContext): Promise<string> {
-  const personaProfile = context.persona === 'STRICT' 
-    ? "You are a very skeptical and strict officer. You focus heavily on Section 214(b) (immigrant intent). You challenge the applicant's ties to their home country and financial stability."
-    : context.persona === 'HELPFUL'
-    ? "You are a supportive and clear officer. You want to help the applicant explain their situation fully, though you still maintain official standards."
-    : "You are a professional and neutral officer. You follow standard protocols without extreme bias.";
+  const { visa, mission } = getVisaSpecificContext(context.visaType, context.missionId);
+
+  const personaProfile =
+    context.persona === 'STRICT'
+      ? `You are a very skeptical and strict officer. Your questioning is sharp and direct.`
+      : context.persona === 'HELPFUL'
+      ? `You are a supportive and clear officer. You want to help the applicant explain their situation fully.`
+      : `You are a professional and neutral officer. You follow standard protocols.`;
+
+  // LAYER 1: MISSION INTELLIGENCE (Directly from docs)
+  const intelligenceBriefing = context.userDocuments.length > 0 
+    ? `
+**MISSION INTELLIGENCE (Verified Handheld Documents):**
+${context.userDocuments.map(doc => `
+- SOURCE: ${doc.source} (${doc.category})
+  INTELLIGENCE EXTRACTION: ${JSON.stringify(doc.intelligence)}
+  RAW SNIPPET: "${doc.content.substring(0, 500)}..."
+`).join('\n')}
+`
+    : 'No documents provided.';
+
+  // LAYER 2: DS-160 PRE-ANALYSIS (Case File)
+  const caseFileBriefing = context.caseFile 
+    ? `
+**CASE FILE ANALYSIS (Agent DS-160 PRE-SCREEN):**
+Application Data: ${JSON.stringify(context.caseFile.applicationData)}
+RED FLAGS IDENTIFIED: ${context.caseFile.applicationAnalysis?.redFlags.join(', ')}
+STRENGTHS: ${context.caseFile.applicationAnalysis?.strengths.join(', ')}
+SUGGESTED FOCUS: ${context.caseFile.applicationAnalysis?.suggestedFocusAreas.join(', ')}
+`
+    : 'No case file pre-analysis available.';
 
   const prompt = `
-You are a US consular officer at the ${context.mission || 'US Embassy'} conducting a visa interview for a ${context.visaType} visa applicant.
+You are a consular officer conducting a ${visa.name} interview.
+Location Focus: ${mission.focus}
+Persona: ${personaProfile}
+Primary Concern: ${visa.primaryConcern}
 
-${personaProfile}
-
-Context from documents:
-${JSON.stringify(context.userDocuments, null, 2)}
+${caseFileBriefing}
+${intelligenceBriefing}
 
 Previous conversation:
-${context.previousAnswers.map(a => `Officer: ${a.question}\nApplicant: ${a.answer}`).join('\n')}
+${context.previousAnswers.length === 0 ? 'Interview is just starting.' : context.previousAnswers.map((a) => `Officer: ${a.question}\nApplicant: ${a.answer}`).join('\n')}
 
-Based on the visa type and previous answers, generate the next appropriate interview question.
-Be concise, professional, and ask follow-up questions based on previous answers when relevant.
-If the applicant's answers seem incomplete or inconsistent, probe deeper.
+INSTRUCTIONS:
+1. Conduct the interview based on the Case File and Mission Intelligence.
+2. Probe into identified Red Flags immediately.
+3. Be aware of strengths but continue to cross-verify.
+4. DO NOT suggest uploading documents that are already listed in the MISSION INTELLIGENCE.
+5. Generate the NEXT Logical Question.
 
-Next question:
+Output ONLY the question itself.
 `;
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4-turbo-preview',
+  const completion = await aiClient.chat.completions.create({
+    model: AI_MODEL,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.7,
     max_tokens: 150,
   });
 
-  return completion.choices[0].message.content || "Thank you. Let's continue with the next question.";
+  return completion.choices[0].message.content || "Thank you. Let's continue.";
 }
 
 export async function evaluateAnswer(
   question: string,
   answer: string,
   context: InterviewContext
-): Promise<{
-  score: number;
-  feedback: string;
-  suggestions: string[];
-  nextQuestion: string;
-}> {
+): Promise<InterviewResult> {
+  const { visa, mission } = getVisaSpecificContext(context.visaType, context.missionId);
+
+  const intelligenceContext = context.userDocuments.length > 0
+    ? `
+**VERIFIED INTELLIGENCE RECORDS (What you can see):**
+${context.userDocuments.map(doc => `
+- ${doc.category} (${doc.source}):
+  Data: ${JSON.stringify(doc.intelligence)}
+  Text: ${doc.content.substring(0, 300)}...
+`).join('\n')}
+`
+    : 'No documents provided.';
+
+  const caseFileContext = context.caseFile 
+    ? `
+**DS-160 PRE-ANALYSIS RED FLAGS:**
+${context.caseFile.applicationAnalysis?.redFlags.join(', ')}
+` 
+    : '';
+
   const prompt = `
-Evaluate this visa interview answer for a ${context.visaType} application at the ${context.mission || 'US Embassy'}:
+Evaluate the applicant's answer for a ${context.visaType} application.
+Location Focus: ${mission.focus}
+Primary Concern: ${visa.primaryConcern}
+
+${caseFileContext}
+${intelligenceContext}
 
 Question: ${question}
-Answer: ${answer}
+Applicant Answer: ${answer}
+
+EVALUATION CRITERIA:
+1. Does the answer match the VERIFIED INTELLIGENCE RECORDS?
+2. Does the answer address previously identified RED FLAGS?
+3. If they contradict the documents (e.g. salary, employer), score must be < 40 and feedback must be severe.
 
 Provide analysis in JSON format:
 {
-  "score": (0-100, based on relevance, clarity, and honesty),
-  "feedback": "Brief feedback on the answer quality",
-  "suggestions": ["Improvement suggestion 1", "Improvement suggestion 2"],
-  "nextQuestion": "Follow-up question based on this answer"
+  "score": (0-100),
+  "feedback": "Analysis of their answer, explicitly mentioning if it matches or contradicts the uploaded documents/case-file.",
+  "suggestions": ["specific improvement for the applicant"],
+  "nextQuestion": "Logical follow-up question."
 }
-
-Consider:
-- Does the answer directly address the question?
-- Is the answer consistent with documents?
-- Does it demonstrate strong ties to home country (Section 214(b))?
-- Is the financial situation clear?
-- Is the purpose of travel legitimate?
 `;
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4-turbo-preview',
+  const completion = await aiClient.chat.completions.create({
+    model: AI_MODEL,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.5,
     response_format: { type: 'json_object' },
   });
 
-  const result = JSON.parse(completion.choices[0].message.content || '{}');
-  
+  const resultBody = completion.choices[0].message.content || '{}';
+  const result = JSON.parse(resultBody);
+
   return {
     score: result.score || 70,
     feedback: result.feedback || 'Your answer was acceptable.',
     suggestions: result.suggestions || [],
-    nextQuestion: result.nextQuestion || await generateNextQuestion(context),
+    nextQuestion: result.nextQuestion || (await generateNextQuestion(context)),
   };
 }

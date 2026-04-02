@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/auth/FireAuthProvider';
 import { db } from '@/lib/firebase';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FileText, 
@@ -13,16 +13,19 @@ import {
   AlertCircle,
   FileSearch,
   BadgeCheck,
+  Brain,
   MoreVertical
 } from 'lucide-react';
 
 interface UserDocument {
   id: string;
   name: string;
-  url: string;
+  url?: string;
   category: string;
   createdAt: any;
   size: number;
+  status?: string;
+  isContextOnly?: boolean;
 }
 
 export function DocumentList() {
@@ -53,6 +56,20 @@ export function DocumentList() {
 
     return () => unsubscribe();
   }, [user]);
+
+  const handleDelete = async (docId: string) => {
+    if (!user) return;
+    try {
+      const confirmDecline = confirm('Decommission this intelligence artifact from current mission?');
+      if (!confirmDecline) return;
+
+      const docRef = doc(db, 'userDocuments', docId);
+      await deleteDoc(docRef);
+      setDocuments(prev => prev.filter(d => d.id !== docId));
+    } catch (err) {
+      console.error('Archive deletion error:', err);
+    }
+  };
 
   if (loading) {
     return (
@@ -89,35 +106,50 @@ export function DocumentList() {
                 transition={{ delay: idx * 0.05 }}
                 className="group relative glass-card p-4 rounded-2xl border border-white/5 hover:border-gold-500/30 transition-all overflow-hidden"
               >
-                {/* Status Glow */}
-                <div className="absolute top-0 left-0 w-1 h-full bg-gold-500/50" />
+                {/* Status Glow - Red if not validated, Gold if validated */}
+                <div className={`absolute top-0 left-0 w-1 h-full ${doc.status === 'VALIDATED' ? 'bg-gold-500/50' : 'bg-white/10'}`} />
                 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center group-hover:bg-gold-500/10 transition-colors">
-                      <FileText className="w-5 h-5 text-gold-500" />
+                      {doc.isContextOnly ? (
+                        <Brain className="w-5 h-5 text-gold-500" />
+                      ) : (
+                        <FileText className="w-5 h-5 text-gold-500" />
+                      )}
                     </div>
                     <div>
                       <div className="text-sm font-bold text-white flex items-center gap-2">
                         {doc.name}
-                        <BadgeCheck className="w-3 h-3 text-gold-500" />
+                        {doc.status === 'VALIDATED' && <BadgeCheck className="w-3 h-3 text-gold-500" />}
                       </div>
                       <div className="flex items-center gap-3 mt-0.5">
                         <span className="text-[10px] font-bold text-[var(--fg-muted)] uppercase tracking-wider">{doc.category}</span>
                         <span className="w-1 h-1 rounded-full bg-white/10" />
                         <span className="text-[10px] text-[var(--fg-muted)]">{(doc.size / 1024 / 1024).toFixed(2)} MB</span>
+                        {doc.isContextOnly && (
+                          <>
+                            <span className="w-1 h-1 rounded-full bg-white/10" />
+                            <span className="text-[9px] uppercase font-black text-gold-500/50 italic">Synthesized Context</span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {!doc.isContextOnly && doc.url && (
+                      <button 
+                        onClick={() => window.open(doc.url, '_blank')}
+                        className="p-2 hover:bg-white/5 rounded-lg text-[var(--fg-muted)] hover:text-white transition-colors"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </button>
+                    )}
                     <button 
-                      onClick={() => window.open(doc.url, '_blank')}
-                      className="p-2 hover:bg-white/5 rounded-lg text-[var(--fg-muted)] hover:text-white transition-colors"
+                      onClick={() => handleDelete(doc.id)}
+                      className="p-2 hover:bg-red-500/10 rounded-lg text-[var(--fg-muted)] hover:text-red-500 transition-colors"
                     >
-                      <ExternalLink className="w-4 h-4" />
-                    </button>
-                    <button className="p-2 hover:bg-red-500/10 rounded-lg text-[var(--fg-muted)] hover:text-red-500 transition-colors">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
@@ -129,4 +161,4 @@ export function DocumentList() {
       </AnimatePresence>
     </div>
   );
-}
+}
