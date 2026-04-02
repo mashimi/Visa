@@ -1,4 +1,36 @@
+# Dependencies
+/node_modules
+
+# Environment variables
 /.env.local
+
+# Documentation
 /FIX_SUMMARY.md
-/newproject-fa93d-firebase-adminsdk-z6dvr-0b40eb97ef.json
 /read.md
+
+# Firebase credentials
+/newproject-fa93d-firebase-adminsdk-z6dvr-0b40eb97ef.json
+
+# Build output
+/.next
+/out
+
+# IDE
+/.vscode
+/.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
