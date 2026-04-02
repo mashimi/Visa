@@ -2,6 +2,9 @@ import { storage } from '@/lib/firebase-admin';
 
 export async function uploadToFirebaseStorage(buffer: Buffer, fileName: string, mimeType: string): Promise<string> {
   try {
+    if (!storage) {
+      throw new Error('Firebase Storage not properly initialized. Check environment variables.');
+    }
     const bucket = storage.bucket();
     const file = bucket.file(fileName);
 
@@ -23,6 +26,9 @@ export async function uploadToFirebaseStorage(buffer: Buffer, fileName: string, 
 
 export async function deleteFromFirebaseStorage(fileName: string): Promise<void> {
   try {
+    if (!storage) {
+      throw new Error('Firebase Storage not properly initialized. Check environment variables.');
+    }
     const bucket = storage.bucket();
     const file = bucket.file(fileName);
     await file.delete();
