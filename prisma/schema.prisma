@@ -1,0 +1,113 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  interviews    InterviewSession[]
+  documents     Document[]
+  chatHistory   ChatMessage[]
+}
+
+model InterviewSession {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  visaType      VisaType
+  status        SessionStatus @default(ACTIVE)
+  currentQuestionIndex Int @default(0)
+  progress      Int       @default(0)
+  scorecard     Json?
+  startedAt     DateTime  @default(now())
+  endedAt       DateTime?
+  
+  messages      InterviewMessage[]
+}
+
+enum VisaType {
+  TOURIST
+  BUSINESS
+  STUDENT
+  WORK
+  FAMILY
+}
+
+enum SessionStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+model InterviewMessage {
+  id            String    @id @default(cuid())
+  sessionId     String
+  session       InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role          MessageRole
+  content       String
+  audioUrl      String?
+  feedback      Json?
+  createdAt     DateTime  @default(now())
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+model Document {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  filename      String
+  originalName  String
+  mimeType      String
+  size          Int
+  s3Key         String
+  s3Url         String?
+  category      DocumentCategory
+  status        DocumentStatus @default(PENDING)
+  extractedData Json?
+  validationFeedback Json?
+  uploadedAt    DateTime  @default(now())
+  verifiedAt    DateTime?
+}
+
+enum DocumentCategory {
+  PASSPORT
+  BANK_STATEMENT
+  EMPLOYMENT_LETTER
+  TRAVEL_ITINERARY
+  INVITATION_LETTER
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  PROCESSING
+  VALIDATED
+  REJECTED
+}
+
+model ChatMessage {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role          String
+  content       String
+  createdAt     DateTime  @default(now())
+}

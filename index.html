@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visa Interview Simulator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-storage-compat.js"></script>
+  
+  <style>
+    :root {
+      --bg-primary: #0a0f1a;
+      --bg-secondary: #111827;
+      --bg-card: #1a2235;
+      --fg-primary: #f1f5f9;
+      --fg-secondary: #94a3b8;
+      --fg-muted: #64748b;
+      --accent-gold: #d4a853;
+      --accent-gold-dim: #b8923f;
+      --accent-teal: #2dd4bf;
+      --border: #2a3548;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --error: #ef4444;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'IBM Plex Sans', sans-serif;
+      background: var(--bg-primary);
+      color: var(--fg-primary);
+      min-height: 100vh;
+    }
+    .font-display {
+      font-family: 'DM Serif Display', serif;
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-secondary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
+    .bg-pattern {
+      background-image: radial-gradient(ellipse at 20% 0%, rgba(212, 168, 83, 0.08) 0%, transparent 50%), radial-gradient(ellipse at 80% 100%, rgba(45, 212, 191, 0.05) 0%, transparent 50%), linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+    }
+    .grid-overlay {
+      background-image: linear-gradient(rgba(42, 53, 72, 0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(42, 53, 72, 0.3) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+    .glass-card {
+      background: linear-gradient(135deg, rgba(26, 34, 53, 0.9) 0%, rgba(17, 24, 39, 0.95) 100%);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+    }
+    .doc-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    .doc-card:hover { transform: translateY(-2px); border-color: var(--accent-gold); box-shadow: 0 8px 24px rgba(212, 168, 83, 0.15); }
+    @keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.8); opacity: 0; }}
+    .recording-pulse::before { content: ''; position: absolute; inset: -8px; border-radius: 50%; background: var(--error); animation: pulse-ring 1.5s ease-out infinite; }
+    @keyframes typing-bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-4px); }
+    }
+    .typing-dot { animation: typing-bounce 1.4s ease-in-out infinite; }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); }}
+    .message-animate { animation: slideIn 0.4s ease-out forwards; }
+    .progress-fill { transition: width 0.5s ease-out; }
+    .upload-zone { border: 2px dashed var(--border); transition: all 0.3s ease; }
+    .upload-zone.dragover { border-color: var(--accent-gold); background: rgba(212, 168, 83, 0.05); }
+    .btn-primary { background: linear-gradient(135deg, var(--accent-gold) 0%, var(--accent-gold-dim) 100%); color: var(--bg-primary); font-weight: 600; transition: all 0.2s ease; }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(212, 168, 83, 0.3); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--fg-primary); transition: all 0.2s ease; }
+    .btn-secondary:hover { border-color: var(--accent-gold); color: var(--accent-gold); }
+    *:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+    .badge-verified { background: rgba(34, 197, 94, 0.15); color: var(--success); border: 1px solid rgba(34, 197, 94, 0.3); }
+    .badge-pending { background: rgba(245, 158, 11, 0.15); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .mic-btn { transition: all 0.3s ease; }
+    .mic-btn.active { background: var(--error); box-shadow: 0 0 30px rgba(239, 68, 68, 0.4); }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }}
+    .modal-overlay { background: rgba(10, 15, 26, 0.85); backdrop-filter: blur(8px); }
+    .doc-preview { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); }
+  </style>
+</head>
+<body class="bg-pattern">
+  <header class="fixed top-0 left-0 right-0 z-50 glass-card border-b border-[var(--border)]">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-gold-dim)] flex items-center justify-center">
+          <svg class="w-6 h-6 text-[var(--bg-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="font-display text-lg text-[var(--fg-primary)]">Visa Interview Portal</h1>
+          <p class="text-xs text-[var(--fg-muted)]">AI-Powered Interview Simulation</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <div id="connectionStatus" class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs">
+          <span class="w-2 h-2 rounded-full bg-[var(--warning)]"></span>
+          <span class="text-[var(--fg-secondary)]">Firebase Required</span>
+        </div>
+        <button id="authBtn" class="btn-secondary px-4 py-2 rounded-lg text-sm">Sign In</button>
+      </div>
+    </div>
+  </header>
+  <main class="pt-20 pb-8 min-h-screen">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6">
+      <div class="grid lg:grid-cols-[1fr,400px] gap-6 mt-6">
+        <div class="space-y-4">
+          <div class="glass-card rounded-2xl p-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+              <div class="relative">
+                <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-[var(--bg-secondary)] to-[var(--bg-card)] border border-[var(--border)] flex items-center justify-center">
+                  <svg class="w-7 h-7 text-[var(--accent-gold)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                  </svg>
+                </div>
+                <span class="absolute -bottom-1 -right-1 w-4 h-4 bg-[var(--success)] rounded-full border-2 border-[var(--bg-card)]"></span>
+              </div>
+              <div>
+                <h2 class="font-display text-xl">Consular Officer AI</h2>
+                <p class="text-sm text-[var(--fg-muted)]">Press the microphone to speak</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="text-right">
+                <p class="text-xs text-[var(--fg-muted)]">Interview Progress</p>
+                <p class="text-lg font-semibold text-[var(--accent-gold)]" id="progressPercent">0%</p>
+              </div>
+              <div class="w-24 h-2 bg-[var(--bg-secondary)] rounded-full overflow-hidden">
+                <div id="progressBar" class="progress-fill h-full bg-gradient-to-r from-[var(--accent-gold)] to-[var(--accent-teal)] rounded-full" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="glass-card rounded-2xl overflow-hidden">
+            <div id="chatContainer" class="h-[400px] overflow-y-auto p-4 space-y-4">
+              <div class="message-animate flex gap-3">
+                <div class="w-8 h-8 rounded-lg bg-[var(--accent-gold)] flex items-center justify-center flex-shrink-0">
+                  <svg class="w-4 h-4 text-[var(--bg-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                  </svg>
+                </div>
+                <div class="flex-1">
+                  <div class="bg-[var(--bg-card)] rounded-2xl rounded-tl-sm p-4">
+                    <p class="text-[var(--fg-primary)]">Good morning. I am your Consular Officer today. Please have a seat.</p>
+                    <p class="text-[var(--fg-secondary)] mt-2">I see you're applying for a visa today. Before we begin, please upload your supporting documents on the right panel, then we can proceed with the interview.</p>
+                    <p class="text-[var(--fg-secondary)] mt-2">Press the microphone button when you're ready to respond, or type your answer below.</p>
+                  </div>
+                  <span class="text-xs text-[var(--fg-muted)] mt-1 block">Consular Officer</span>
+                </div>
+              </div>
+            </div>
+            <div id="typingIndicator" class="hidden px-4 pb-2">
+              <div class="flex items-center gap-2 text-[var(--fg-muted)]">
+                <div class="flex gap-1">
+                  <span class="typing-dot w-1.5 h-1.5 bg-[var(--accent-gold)] rounded-full"></span>
+                  <span class="typing-dot w-1.5 h-1.5 bg-[var(--accent-gold)] rounded-full"></span>
+                  <span class="typing-dot w-1.5 h-1.5 bg-[var(--accent-gold)] rounded-full"></span>
+                </div>
+                <span class="text-sm">Officer is reviewing...</span>
+              </div>
+            </div>
+            <div class="border-t border-[var(--border)] p-4">
+              <div class="flex items-end gap-3">
+                <div class="flex-1 relative">
+                  <textarea id="messageInput" placeholder="Type your response or use the microphone..." class="w-full bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl px-4 py-3 text-[var(--fg-primary)] placeholder-[var(--fg-muted)] resize-none focus:border-[var(--accent-gold)] focus:outline-none" rows="1"></textarea>
+                </div>
+                <button id="micBtn" class="mic-btn relative w-12 h-12 rounded-xl bg-[var(--bg-card)] border border-[var(--border)] flex items-center justify-center hover:border-[var(--accent-gold)] transition-all" aria-label="Toggle microphone">
+                  <svg class="w-5 h-5 text-[var(--fg-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                  </svg>
+                </button>
+                <button id="sendBtn" class="btn-primary w-12 h-12 rounded-xl flex items-center justify-center" aria-label="Send message">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="glass-card rounded-2xl p-4">
+            <h3 class="text-sm font-medium text-[var(--fg-secondary)] mb-3">Quick Responses</h3>
+            <div class="flex flex-wrap gap-2">
+              <button class="quick-response btn-secondary px-3 py-2 rounded-lg text-sm" data-response="Yes, I have all my documents ready.">Documents Ready</button>
+              <button class="quick-response btn-secondary px-3 py-2 rounded-lg text-sm" data-response="I am applying for a tourist visa.">Tourist Visa</button>
+              <button class="quick-response btn-secondary px-3 py-2 rounded-lg text-sm" data-response="I plan to stay for two weeks.">Two Week Stay</button>
+              <button class="quick-response btn-secondary px-3 py-2 rounded-lg text-sm" data-response="I have sufficient funds to cover my trip.">Funds Available</button>
+              <button class="quick-response btn-secondary px-3 py-2 rounded-lg text-sm" data-response="I have a stable job and family ties in my home country.">Ties to Home</button>
+            </div>
+          </div>
+        </div>
+        <div class="space-y-4">
+          <div class="glass-card rounded-2xl p-4">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-display text-lg">Supporting Documents</h3>
+              <span id="docCount" class="text-sm text-[var(--fg-muted)]">0 files</span>
+            </div>
+            <div id="uploadZone" class="upload-zone rounded-xl p-6 text-center cursor-pointer" role="button" tabindex="0" aria-label="Click or drag files to upload">
+              <input type="file" id="fileInput" class="hidden" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+              <svg class="w-10 h-10 mx-auto mb-3 text-[var(--fg-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+              </svg>
+              <p class="text-[var(--fg-secondary)] text-sm">Drop files here or click to upload</p>
+              <p class="text-[var(--fg-muted)] text-xs mt-1">PDF, JPG, PNG, DOC up to 10MB</p>
+            </div>
+            <div id="documentList" class="mt-4 space-y-2 max-h-[300px] overflow-y-auto"></div>
+          </div>
+          <div class="glass-card rounded-2xl p-4">
+            <h3 class="font-display text-lg mb-4">Required Documents</h3>
+            <div class="space-y-2">
+              <div class="doc-category flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)]" data-category="passport">
+                <div class="w-8 h-8 rounded-lg bg-[var(--bg-card)] flex items-center justify-center">
+                  <svg class="w-4 h-4 text-[var(--fg-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/></svg>
+                </div>
+                <div class="flex-1">
+                  <p class="text-sm font-medium">Passport</p>
+                  <p class="text-xs text-[var(--fg-muted)]">Valid for 6+ months</p>
+                </div>
+                <span class="doc-status text-xs px-2 py-1 rounded-full">Pending</span>
+              </div>
+              <div class="doc-category flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)]" data-category="bank">
+                <div class="w-8 h-8 rounded-lg bg-[var(--bg-card)] flex items-center justify-center">
+                  <svg class="w-4 h-4 text-[var(--fg-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+                </div>
+                <div class="flex-1">
+                  <p class="text-sm font-medium">Bank Statements</p>
+                  <p class="text-xs text-[var(--fg-muted)]">Last 3-6 months</p>
+                </div>
+                <span class="doc-status text-xs px-2 py-1 rounded-full">Pending</span>
+              </div>
+              <div class="doc-category flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)]" data-category="employment">
+                <div class="w-8 h-8 rounded-lg bg-[var(--bg-card)] flex items-center justify-center">
+                  <svg class="w-4 h-4 text-[var(--fg-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                </div>
+                <div class="flex-1">
+                  <p class="text-sm font-medium">Employment Letter</p>
+                  <p class="text-xs text-[var(--fg-muted)]">Current position & salary</p>
+                </div>
+                <span class="doc-status text-xs px-2 py-1 rounded-full">Pending</span>
+              </div>
+              <div class="doc-category flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)]" data-category="itinerary">
+                <div class="w-8 h-8 rounded-lg bg-[var(--bg-card)] flex items-center justify-center"><svg class="w-4 h-4 text-[var(--fg-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg></div>
+                <div class="flex-1"><p class="text-sm font-medium">Travel Itinerary</p><p class="text-xs text-[var(--fg-muted)]">Flight & hotel bookings</p></div>
+                <span class="doc-status text-xs px-2 py-1 rounded-full">Pending</span>
+              </div>
+              <div class="doc-category flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)]" data-category="invitation">
+                <div class="w-8 h-8 rounded-lg bg-[var(--bg-card)] flex items-center justify-center"><svg class="w-4 h-4 text-[var(--fg-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg></div>
+                <div class="flex-1"><p class="text-sm font-medium">Invitation Letter</p><p class="text-xs text-[var(--fg-muted)]">If visiting someone</p></div>
+                <span class="doc-status text-xs px-2 py-1 rounded-full">Optional</span>
+              </div>
+            </div>
+          </div>
+          <div class="glass-card rounded-2xl p-4">
+            <h3 class="font-display text-lg mb-3">Interview Tips</h3>
+            <ul class="space-y-2 text-sm text-[var(--fg-secondary)]">
+              <li class="flex items-start gap-2"><svg class="w-4 h-4 text-[var(--accent-teal)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Answer honestly and concisely</span></li>
+              <li class="flex items-start gap-2"><svg class="w-4 h-4 text-[var(--accent-teal)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Have documents ready before speaking</span></li>
+              <li class="flex items-start gap-2"><svg class="w-4 h-4 text-[var(--accent-teal)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Be prepared to show ties to home country</span></li>
+              <li class="flex items-start gap-2"><svg class="w-4 h-4 text-[var(--accent-teal)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Demonstrate financial stability</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <div id="previewModal" class="fixed inset-0 z-50 hidden">
+    <div class="modal-overlay absolute inset-0" id="modalOverlay"></div>
+    <div class="absolute inset-4 sm:inset-8 md:inset-16 lg:inset-24 flex items-center justify-center">
+      <div class="glass-card rounded-2xl w-full max-w-3xl max-h-full overflow-hidden flex flex-col">
+        <div class="flex items-center justify-between p-4 border-b border-[var(--border)]">
+          <h3 id="previewTitle" class="font-display text-lg">Document Preview</h3>
+          <button id="closePreview" class="w-8 h-8 rounded-lg hover:bg-[var(--bg-card)] flex items-center justify-center transition-colors" aria-label="Close preview">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div id="previewContent" class="flex-1 overflow-auto p-4"></div>
+        <div class="flex items-center justify-end gap-3 p-4 border-t border-[var(--border)]">
+          <button class="btn-secondary px-4 py-2 rounded-lg text-sm" id="deleteDoc">Delete Document</button>
+          <button class="btn-primary px-4 py-2 rounded-lg text-sm" id="verifyDoc">Mark as Verified</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="authModal" class="fixed inset-0 z-50 hidden">
+    <div class="modal-overlay absolute inset-0" id="authModalOverlay"></div>
+    <div class="absolute inset-4 flex items-center justify-center">
+      <div class="glass-card rounded-2xl w-full max-w-md p-6">
+        <h3 class="font-display text-2xl mb-2">Welcome</h3>
+        <p class="text-[var(--fg-secondary)] mb-6">Sign in to save your interview progress and documents</p>
+        <div id="authForm">
+          <div class="space-y-4">
+            <div><label class="block text-sm text-[var(--fg-secondary)] mb-1">Email</label><input type="email" id="authEmail" class="w-full bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg px-4 py-3 text-[var(--fg-primary)] focus:border-[var(--accent-gold)] focus:outline-none" placeholder="your@email.com"></div>
+            <div><label class="block text-sm text-[var(--fg-secondary)] mb-1">Password</label><input type="password" id="authPassword" class="w-full bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg px-4 py-3 text-[var(--fg-primary)] focus:border-[var(--accent-gold)] focus:outline-none" placeholder="••••••••"></div>
+          </div>
+          <div class="mt-6 space-y-3">
+            <button id="signInBtn" class="btn-primary w-full py-3 rounded-lg">Sign In</button>
+            <button id="signUpBtn" class="btn-secondary w-full py-3 rounded-lg">Create Account</button>
+          </div>
+        </div>
+        <button id="closeAuthModal" class="absolute top-4 right-4 w-8 h-8 rounded-lg hover:bg-[var(--bg-card)] flex items-center justify-center transition-colors" aria-label="Close">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  <script>
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    let app, auth, db, storage;
+    let firebaseInitialized = false;
+    try {
+      app = firebase.initializeApp(firebaseConfig);
+      auth = firebase.auth();
+      db = firebase.firestore();
+      storage = firebase.storage();
+      firebaseInitialized = true;
+    } catch (e) {
+      console.log('Firebase initialization skipped - using demo mode');
+    }
+
+    const state = {
+      currentUser: null,
+      documents: [],
+      chatHistory: [],
+      interviewProgress: 0,
+      currentQuestionIndex: 0,
+      isRecording: false,
+      recognition: null,
+      synthesis: window.speechSynthesis
+    };
+
+    const interviewQuestions = [
+      { id: 1, category: 'intro', question: "Good morning. May I see your passport please? What is the purpose of your trip?", followUp: null },
+      { id: 2, category: 'purpose', question: "How long do you plan to stay in the destination country?", followUp: "Do you have a detailed itinerary?" },
+      { id: 3, category: 'financial', question: "How will you be funding this trip? Can you show me your bank statements?", followUp: "Do you have a stable source of income?" },
+      { id: 4, category: 'employment', question: "What do you do for a living? How long have you been with your current employer?", followUp: "Can I see your employment letter?" },
+      { id: 5, category: 'ties', question: "Do you have family in your home country? What ties do you have that will ensure your return?", followUp: null },
+      { id: 6, category: 'travel', question: "Have you traveled internationally before? Which countries have you visited?", followUp: "Have you ever been denied a visa?" },
+      { id: 7, category: 'stay', question: "Where will you be staying during your visit? Do you have hotel reservations?", followUp: null },
+      { id: 8, category: 'closing', question: "Is there anything else you'd like to add before I make my decision?", followUp: null }
+    ];
+
+    const elements = {
+      chatContainer: document.getElementById('chatContainer'),
+      messageInput: document.getElementById('messageInput'),
+      micBtn: document.getElementById('micBtn'),
+      sendBtn: document.getElementById('sendBtn'),
+      typingIndicator: document.getElementById('typingIndicator'),
+      progressBar: document.getElementById('progressBar'),
+      progressPercent: document.getElementById('progressPercent'),
+      uploadZone: document.getElementById('uploadZone'),
+      fileInput: document.getElementById('fileInput'),
+      documentList: document.getElementById('documentList'),
+      docCount: document.getElementById('docCount'),
+      previewModal: document.getElementById('previewModal'),
+      previewTitle: document.getElementById('previewTitle'),
+      previewContent: document.getElementById('previewContent'),
+      modalOverlay: document.getElementById('modalOverlay'),
+      closePreview: document.getElementById('closePreview'),
+      authBtn: document.getElementById('authBtn'),
+      authModal: document.getElementById('authModal'),
+      authModalOverlay: document.getElementById('authModalOverlay'),
+      closeAuthModal: document.getElementById('closeAuthModal'),
+      signInBtn: document.getElementById('signInBtn'),
+      signUpBtn: document.getElementById('signUpBtn'),
+      authEmail: document.getElementById('authEmail'),
+      authPassword: document.getElementById('authPassword'),
+      connectionStatus: document.getElementById('connectionStatus'),
+      deleteDoc: document.getElementById('deleteDoc'),
+      verifyDoc: document.getElementById('verifyDoc')
+    };
+
+    function initSpeechRecognition() {
+      if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        state.recognition = new SpeechRecognition();
+        state.recognition.continuous = false;
+        state.recognition.interimResults = true;
+        state.recognition.lang = 'en-US';
+
+        state.recognition.onresult = (event) => {
+          const transcript = Array.from(event.results).map(result => result[0].transcript).join('');
+          elements.messageInput.value = transcript;
+        };
+
+        state.recognition.onend = () => {
+          if (state.isRecording) {
+            state.isRecording = false;
+            elements.micBtn.classList.remove('active');
+          }
+        };
+
+        state.recognition.onerror = (event) => {
+          console.error('Speech recognition error:', event.error);
+          state.isRecording = false;
+          elements.micBtn.classList.remove('active');
+        };
+      }
+    }
+
+    function speak(text) {
+      if (state.synthesis) {
+        state.synthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.9;
+        utterance.pitch = 1;
+        utterance.volume = 1;
+        state.synthesis.speak(utterance);
+      }
+    }
+
+    function generateAIResponse(userMessage) {
+      const currentQ = interviewQuestions[state.currentQuestionIndex];
+      const lowerMsg = userMessage.toLowerCase();
+      const hasDocuments = state.documents.length > 0;
+      const docCategories = state.documents.map(d => d.category);
+      let response = "";
+      let progress = state.interviewProgress;
+
+      if (currentQ) {
+        switch(currentQ.category) {
+          case 'intro':
+            if (lowerMsg.includes('tourist') || lowerMsg.includes('visit') || lowerMsg.includes('vacation')) {
+              response = "I see, you're applying for a tourist visa. Let me verify your documents.";
+              if (hasDocuments) {
+                response += " I can see you've uploaded " + state.documents.length + " document(s). Let me review them.";
+              } else {
+                response += " Please upload your passport and supporting documents so I can proceed.";
+              }
+            } else if (lowerMsg.includes('business') || lowerMsg.includes('work') || lowerMsg.includes('conference')) {
+              response = "A business visa application. Do you have an invitation letter from the company you'll be visiting?";
+            } else if (lowerMsg.includes('family') || lowerMsg.includes('friend')) {
+              response = "Visiting family or friends. Do you have an invitation letter from your host?";
+            } else {
+              response = "Could you please specify the purpose of your visit? Is it for tourism, business, or visiting family?";
+            }
+            progress = 12;
+            break;
+          case 'purpose':
+            if (lowerMsg.includes('week') || lowerMsg.includes('day')) {
+              response = "That seems like a reasonable duration. Do you have a return ticket booked?";
+            } else if (lowerMsg.includes('month')) {
+              response = "That's a longer stay. Can you explain why you need such an extended period?";
+            } else {
+              response = "I need to know the exact duration of your planned stay for our records.";
+            }
+            progress = 25;
+            break;
+          case 'financial':
+            if (docCategories.includes('bank')) {
+              response = "I've reviewed your bank statements. Your financial position appears stable. What is your monthly income?";
+            } else if (lowerMsg.includes('saving') || lowerMsg.includes('income') || lowerMsg.includes('salary')) {
+              response = "That's helpful. Could you provide your bank statements showing these funds? I need to verify your financial capacity.";
+            } else {
+              response = "I need to see evidence of your financial capability. Please upload your bank statements showing at least 3 months of transactions.";
+            }
+            progress = 38;
+            break;
+          case 'employment':
+            if (docCategories.includes('employment')) {
+              response = "I see from your employment letter that you've been with your employer for some time. This is good for your application. What is your position and salary?";
+            } else if (lowerMsg.includes('employ') || lowerMsg.includes('work') || lowerMsg.includes('job')) {
+              response = "Could you provide an employment letter from your company? It should state your position, salary, and that you're expected to return to work.";
+            } else if (lowerMsg.includes('self') || lowerMsg.includes('business') || lowerMsg.includes('company')) {
+              response = "Self-employed applicants need to show business registration documents and tax returns. Do you have these available?";
+            } else {
+              response = "Please tell me about your employment situation. Are you employed, self-employed, or retired?";
+            }
+            progress = 50;
+            break;
+          case 'ties':
+            if (lowerMsg.includes('family') || lowerMsg.includes('spouse') || lowerMsg.includes('children')) {
+              response = "Family ties are important evidence of your intention to return. Do you own any property or have other significant ties to your home country?";
+            } else if (lowerMsg.includes('property') || lowerMsg.includes('house') || lowerMsg.includes('apartment')) {
+              response = "Property ownership is a strong tie. Can you provide documentation of this?";
+            } else {
+              response = "The immigration law requires us to verify that you have strong ties to your home country that will ensure your return. What ties can you demonstrate?";
+            }
+            progress = 62;
+            break;
+          case 'travel':
+            if (lowerMsg.includes('yes') || lowerMsg.includes('travel') || lowerMsg.includes('visit')) {
+              response = "Your travel history is noted. Have you ever overstayed a visa or been denied entry to any country?";
+            } else if (lowerMsg.includes('no') || lowerMsg.includes('first') || lowerMsg.includes('never')) {
+              response = "This would be your first international travel. That's not a problem, but we'll need to carefully evaluate your ties to your home country.";
+            } else {
+              response = "Your travel history helps us assess your application. Have you visited other countries before?";
+            }
+            progress = 75;
+            break;
+          case 'stay':
+            if (lowerMsg.includes('hotel') || lowerMsg.includes('reservation')) {
+              response = "Good. Having confirmed accommodation shows proper planning. Who made these reservations?";
+            } else if (lowerMsg.includes('family') || lowerMsg.includes('friend') || lowerMsg.includes('stay with')) {
+              response = "Staying with family or friends requires an invitation letter. Do you have one from your host?";
+            } else {
+              response = "Where do you plan to stay during your visit? Do you have hotel reservations or will you be staying with someone?";
+            }
+            progress = 85;
+            break;
+          case 'closing':
+            response = "Thank you for your cooperation during this interview. Based on our conversation and the documents you've provided, I will now make my decision on your visa application.";
+            progress = 100;
+            break;
+          default:
+            response = "I understand. Let me continue with the next question.";
+        }
+
+        if (state.currentQuestionIndex < interviewQuestions.length - 1) {
+          setTimeout(() => {
+            state.currentQuestionIndex++;
+            const nextQ = interviewQuestions[state.currentQuestionIndex];
+            if (nextQ) {
+              addMessage(nextQ.question, 'ai');
+              speak(nextQ.question);
+            }
+          }, 2000);
+        }
+      }
+
+      state.interviewProgress = Math.min(progress, 100);
+      updateProgress();
+      return response;
+    }
+
+    function addMessage(text, type) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'message-animate flex gap-3';
+      if (type === 'user') {
+        messageDiv.innerHTML = `
+          <div class="flex-1 flex justify-end">
+            <div class="max-w-[80%]">
+              <div class="bg-[var(--accent-gold)] text-[var(--bg-primary)] rounded-2xl rounded-tr-sm p-4">
+                <p>${text}</p>
+              </div>
+              <span class="text-xs text-[var(--fg-muted)] mt-1 block text-right">You</span>
+            </div>
+          </div>
+          <div class="w-8 h-8 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4 text-[var(--fg-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+          </div>
+        `;
+      } else {
+        messageDiv.innerHTML = `
+          <div class="w-8 h-8 rounded-lg bg-[var(--accent-gold)] flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4 text-[var(--bg-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          </div>
+          <div class="flex-1">
+            <div class="bg-[var(--bg-card)] rounded-2xl rounded-tl-sm p-4">
+              <p class="text-[var(--fg-primary)]">${text}</p>
+            </div>
+            <span class="text-xs text-[var(--fg-muted)] mt-1 block">Consular Officer</span>
+          </div>
+        `;
+      }
+      elements.chatContainer.appendChild(messageDiv);
+      elements.chatContainer.scrollTop = elements.chatContainer.scrollHeight;
+      state.chatHistory.push({ text, type, timestamp: new Date() });
+    }
+
+    async function sendMessage() {
+      const text = elements.messageInput.value.trim();
+      if (!text) return;
+      addMessage(text, 'user');
+      elements.messageInput.value = '';
+      elements.typingIndicator.classList.remove('hidden');
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      elements.typingIndicator.classList.add('hidden');
+      const response = generateAIResponse(text);
+      addMessage(response, 'ai');
+      speak(response);
+
+      if (firebaseInitialized && state.currentUser) {
+        await db.collection('users').doc(state.currentUser.uid).collection('chat').add({
+          text,
+          type: 'user',
+          timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    }
+
+    function updateProgress() {
+      const percent = Math.round(state.interviewProgress);
+      elements.progressBar.style.width = percent + '%';
+      elements.progressPercent.textContent = percent + '%';
+    }
+
+    function handleFileUpload(files) {
+      Array.from(files).forEach(file => {
+        const doc = {
+          id: Date.now() + Math.random().toString(36).substr(2, 9),
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          category: categorizeDocument(file.name),
+          status: 'pending',
+          file: file,
+          url: URL.createObjectURL(file),
+          uploadedAt: new Date()
+        };
+        state.documents.push(doc);
+        renderDocumentCard(doc);
+        updateDocumentCount();
+        updateDocumentCategoryStatus(doc.category, 'uploaded');
+        if (firebaseInitialized && state.currentUser) {
+          uploadToFirebase(doc);
+        }
+      });
+      setTimeout(() => {
+        const docNames = state.documents.map(d => d.name).join(', ');
+        addMessage(`I've uploaded my documents: ${docNames}`, 'user');
+        setTimeout(() => {
+          const response = `Thank you for providing your documents. I'll review them during our interview. Now, ${interviewQuestions[state.currentQuestionIndex].question}`;
+          addMessage(response, 'ai');
+          speak(response);
+        }, 1000);
+      }, 500);
+    }
+
+    function categorizeDocument(filename) {
+      const lower = filename.toLowerCase();
+      if (lower.includes('passport') || lower.includes('pp')) return 'passport';
+      if (lower.includes('bank') || lower.includes('statement') || lower.includes('financial')) return 'bank';
+      if (lower.includes('employment') || lower.includes('employer') || lower.includes('job') || lower.includes('salary')) return 'employment';
+      if (lower.includes('itinerary') || lower.includes('travel') || lower.includes('flight') || lower.includes('hotel')) return 'itinerary';
+      if (lower.includes('invitation') || lower.includes('invite') || lower.includes('letter')) return 'invitation';
+      return 'other';
+    }
+
+    function renderDocumentCard(doc) {
+      const card = document.createElement('div');
+      card.className = 'doc-card flex items-center gap-3 p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] cursor-pointer';
+      card.dataset.docId = doc.id;
+      const icon = getFileIcon(doc.type);
+      const sizeStr = formatFileSize(doc.size);
+      card.innerHTML = `
+        <div class="w-10 h-10 rounded-lg bg-[var(--bg-card)] flex items-center justify-center">${icon}</div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium truncate">${doc.name}</p>
+          <p class="text-xs text-[var(--fg-muted)]">${sizeStr}</p>
+        </div>
+        <span class="badge-pending text-xs px-2 py-1 rounded-full">${doc.status}</span>
+      `;
+      card.addEventListener('click', () => openPreview(doc));
+      elements.documentList.appendChild(card);
+    }
+
+    function getFileIcon(type) {
+      if (type.includes('pdf')) {
+        return '<svg class="w-5 h-5 text-[var(--error)]" fill="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 2l5 5h-5V4zm-3 9h2v5H9v2H7v-2H5v-2h2v-3a1 1 0 011-1h3v2zm2 0h2v5h-2v-5z"/></svg>';
+      } else if (type.includes('image')) {
+        return '<svg class="w-5 h-5 text-[var(--accent-teal)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>';
+      }
+      return '<svg class="w-5 h-5 text-[var(--fg-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>';
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function updateDocumentCount() {
+      const count = state.documents.length;
+      elements.docCount.textContent = count + ' file' + (count !== 1 ? 's' : '');
+    }
+
+    function updateDocumentCategoryStatus(category, status) {
+      const categoryEl = document.querySelector(`.doc-category[data-category="${category}"]`);
+      if (categoryEl) {
+        const statusEl = categoryEl.querySelector('.doc-status');
+        statusEl.textContent = status === 'verified' ? 'Verified' : 'Uploaded';
+        statusEl.className = 'doc-status text-xs px-2 py-1 rounded-full ' + (status === 'verified' ? 'badge-verified' : 'badge-pending');
+      }
+    }
+
+    async function uploadToFirebase(doc) {
+      if (!firebaseInitialized || !state.currentUser) return;
+      try {
+        const storageRef = storage.ref(`users/${state.currentUser.uid}/documents/${doc.id}_${doc.name}`);
+        await storageRef.put(doc.file);
+        const url = await storageRef.getDownloadURL();
+        await db.collection('users').doc(state.currentUser.uid).collection('documents').doc(doc.id).set({
+          name: doc.name,
+          category: doc.category,
+          url: url,
+          uploadedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        doc.firebaseUrl = url;
+      } catch (error) {
+        console.error('Upload error:', error);
+      }
+    }
+
+    function openPreview(doc) {
+      elements.previewTitle.textContent = doc.name;
+      let preview = '';
+      if (doc.type.includes('image')) {
+        preview = `<img src="${doc.url}" alt="${doc.name}" class="max-w-full max-h-[60vh] mx-auto rounded-lg">`;
+      } else if (doc.type.includes('pdf')) {
+        preview = `<div class="doc-preview rounded-xl p-8 text-center"><svg class="w-16 h-16 mx-auto mb-4 text-[var(--error)]" fill="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 2l5 5h-5V4z"/></svg><p class="text-[var(--fg-secondary)]">${doc.name}</p><p class="text-[var(--fg-muted)] text-sm mt-2">PDF Preview would display here</p><a href="${doc.url}" target="_blank" class="btn-primary inline-block px-4 py-2 rounded-lg text-sm mt-4">Open PDF</a></div>`;
+      } else {
+        preview = `<div class="doc-preview rounded-xl p-8 text-center"><svg class="w-16 h-16 mx-auto mb-4 text-[var(--fg-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg><p class="text-[var(--fg-secondary)]">${doc.name}</p><p class="text-[var(--fg-muted)] text-sm mt-2">${formatFileSize(doc.size)}</p></div>`;
+      }
+      elements.previewContent.innerHTML = preview;
+      elements.previewModal.classList.remove('hidden');
+      elements.previewModal.dataset.currentDoc = doc.id;
+    }
+
+    elements.sendBtn.addEventListener('click', sendMessage);
+    elements.messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }});
+    elements.micBtn.addEventListener('click', () => {
+      if (!state.recognition) { alert('Speech recognition is not supported in your browser.'); return; }
+      if (state.isRecording) { state.recognition.stop(); state.isRecording = false; elements.micBtn.classList.remove('active'); }
+      else { state.recognition.start(); state.isRecording = true; elements.micBtn.classList.add('active'); }
+    });
+    document.querySelectorAll('.quick-response').forEach(btn => { btn.addEventListener('click', () => { elements.messageInput.value = btn.dataset.response; sendMessage(); }); });
+    elements.uploadZone.addEventListener('click', () => elements.fileInput.click());
+    elements.uploadZone.addEventListener('keypress', (e) => { if (e.key === 'Enter' || e.key === ' ') { elements.fileInput.click(); }});
+    elements.fileInput.addEventListener('change', (e) => { if (e.target.files.length) { handleFileUpload(e.target.files); }});
+    elements.uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); elements.uploadZone.classList.add('dragover'); });
+    elements.uploadZone.addEventListener('dragleave', () => { elements.uploadZone.classList.remove('dragover'); });
+    elements.uploadZone.addEventListener('drop', (e) => { e.preventDefault(); elements.uploadZone.classList.remove('dragover'); if (e.dataTransfer.files.length) { handleFileUpload(e.dataTransfer.files); }});
+    elements.closePreview.addEventListener('click', () => { elements.previewModal.classList.add('hidden'); });
+    elements.modalOverlay.addEventListener('click', () => { elements.previewModal.classList.add('hidden'); });
+    elements.deleteDoc.addEventListener('click', () => {
+      const docId = elements.previewModal.dataset.currentDoc;
+      state.documents = state.documents.filter(d => d.id !== docId);
+      document.querySelector(`[data-doc-id="${docId}"]`)?.remove();
+      updateDocumentCount();
+      elements.previewModal.classList.add('hidden');
+    });
+    elements.verifyDoc.addEventListener('click', () => {
+      const docId = elements.previewModal.dataset.currentDoc;
+      const doc = state.documents.find(d => d.id === docId);
+      if (doc) {
+        doc.status = 'verified';
+        updateDocumentCategoryStatus(doc.category, 'verified');
+        const card = document.querySelector(`[data-doc-id="${docId}"]`);
+        if (card) {
+          const badge = card.querySelector('.badge-pending');
+          if (badge) { badge.textContent = 'Verified'; badge.className = 'badge-verified text-xs px-2 py-1 rounded-full'; }
+        }
+      }
+      elements.previewModal.classList.add('hidden');
+    });
+    elements.authBtn.addEventListener('click', () => { elements.authModal.classList.remove('hidden'); });
+    elements.closeAuthModal.addEventListener('click', () => { elements.authModal.classList.add('hidden'); });
+    elements.authModalOverlay.addEventListener('click', () => { elements.authModal.classList.add('hidden'); });
+    elements.signInBtn.addEventListener('click', async () => {
+      if (!firebaseInitialized) { alert('Firebase is not configured. Please add your Firebase config to enable authentication.'); return; }
+      const email = elements.authEmail.value; const password = elements.authPassword.value;
+      try { await auth.signInWithEmailAndPassword(email, password); elements.authModal.classList.add('hidden'); } catch (error) { alert('Sign in error: ' + error.message); }
+    });
+    elements.signUpBtn.addEventListener('click', async () => {
+      if (!firebaseInitialized) { alert('Firebase is not configured. Please add your Firebase config to enable authentication.'); return; }
+      const email = elements.authEmail.value; const password = elements.authPassword.value;
+      try { await auth.createUserWithEmailAndPassword(email, password); elements.authModal.classList.add('hidden'); } catch (error) { alert('Sign up error: ' + error.message); }
+    });
+
+    if (firebaseInitialized) {
+      auth.onAuthStateChanged((user) => {
+        state.currentUser = user;
+        if (user) {
+          elements.authBtn.textContent = user.email;
+          elements.connectionStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-[var(--success)]"></span><span class="text-[var(--fg-secondary)]">Connected</span>`;
+          loadUserData();
+        } else {
+          elements.authBtn.textContent = 'Sign In';
+          elements.connectionStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-[var(--warning)]"></span><span class="text-[var(--fg-secondary)]">Demo Mode</span>`;
+        }
+      });
+    }
+
+    async function loadUserData() {
+      if (!firebaseInitialized || !state.currentUser) return;
+      try {
+        const docsSnapshot = await db.collection('users').doc(state.currentUser.uid).collection('documents').get();
+        docsSnapshot.forEach(doc => {
+          const data = doc.data();
+          state.documents.push({ id: doc.id, ...data, status: 'uploaded' });
+        });
+        state.documents.forEach(doc => { renderDocumentCard(doc); });
+        updateDocumentCount();
+      } catch (error) { console.error('Error loading user data:', error); }
+    }
+
+    function init() {
+      initSpeechRecognition();
+      if (firebaseInitialized) {
+        elements.connectionStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-[var(--success)]"></span><span class="text-[var(--fg-secondary)]">Firebase Ready</span>`;
+      } else {
+        elements.connectionStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-[var(--warning)]"></span><span class="text-[var(--fg-secondary)]">Demo Mode</span>`;
+      }
+      setTimeout(() => {
+        const firstQ = interviewQuestions[0].question;
+        speak(firstQ);
+      }, 1000);
+    }
+    init();
+  </script>
+</body>
+</html>
